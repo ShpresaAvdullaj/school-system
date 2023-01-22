@@ -39,10 +39,10 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     "rest_framework",
-    # 'rest_framework.authtoken',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
 
+    "system_app",
     "users",
 
 ]
@@ -129,6 +129,13 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 
 USE_TZ = True
+
+"""
+As a consequence, if you’re using PostgreSQL, you can switch between USE_TZ = False
+and USE_TZ = True freely. The database connection’s time zone will be set to TIME_ZONE 
+or UTC respectively, so that Django obtains correct datetimes in all cases. 
+You don’t need to perform any data conversions.
+"""
 
 
 # Static files (CSS, JavaScript, Images)
