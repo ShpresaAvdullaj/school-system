@@ -1,5 +1,6 @@
 from django.db import models
 from django.core.validators import MaxValueValidator
+from django.contrib.postgres.fields import ArrayField
 from users.models import CustomUser
 import datetime
 from django.utils.dateparse import parse_date
@@ -48,6 +49,8 @@ class StudentProfile(models.Model):
 class Course(models.Model):
     subject = models.CharField(max_length=45)
     started = models.DateTimeField()
+    nr_students = models.IntegerField(default=0, validators=[MaxValueValidator(10)])
+    wait_list = ArrayField(models.IntegerField(default=0), default=list)
     teacher = models.ForeignKey(TeacherProfile, related_name="course", on_delete=models.PROTECT)
     nr_assignments = models.IntegerField(default=0, validators=[MaxValueValidator(3)])
     student = models.ManyToManyField(StudentProfile,
@@ -55,11 +58,11 @@ class Course(models.Model):
                                      through="StudentsCourseRelation")
 
     def __str__(self):
-        return f"{self.subject} Starts:{self.started}"
+        return f"{self.subject}"
 
     @property
     def available(self):
-        # if the course has started, you can not register anymore, for the next semester
+        # if the course has started
         duration = datetime.datetime.now().date() - self.started.date()
         if duration.days > 0:
             return False
@@ -75,7 +78,6 @@ class Course(models.Model):
 class StudentsCourseRelation(models.Model):
     student_id = models.ForeignKey(StudentProfile, related_name="student", on_delete=models.CASCADE)
     course_id = models.ForeignKey(Course, related_name="course", on_delete=models.CASCADE)
-
 
     class Meta:
         unique_together = (("student_id", "course_id"),)
