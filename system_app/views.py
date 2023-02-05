@@ -173,6 +173,7 @@ class CourseViewSet(viewsets.ModelViewSet):
     serializer_class = CourseSerializer
     permission_classes = [IsAdminOrReadOnly]
 
+
 # class AssignmentGrade(generics.UpdateAPIView):
 #     serializer_class = StudentAssignmentGradeSerializer
 #     permission_classes = [IsTeacherOrReadOnly]
