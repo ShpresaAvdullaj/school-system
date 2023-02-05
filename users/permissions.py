@@ -29,16 +29,14 @@ class IsStudentOrReadOnly(permissions.BasePermission):
         raise PermissionDenied()
 
 
-# only a specific user can perform a specific action
-class IsSpecificStudent(permissions.BasePermission):
-    def has_object_permission(self, request, view, obj):
-        if obj.user_student == request.user:
-            return True
-        return False
-
-
-class IsSpecificTeacher(permissions.BasePermission):
-    def has_object_permission(self, request, view, obj):
-        if obj.user_teacher == request.user:
-            return True
-        return False
+# # only a specific user can perform a specific action
+# class IsSpecificStudent(permissions.BasePermission):
+#     def has_object_permission(self, request, view, obj):
+#         if obj.user_student == request.user:
+#             return True
+#         return False
+#
+#
+# class IsSpecificTeacher(permissions.BasePermission):
+#     def has_object_permission(self, request, view, obj):
+#         return obj.teacher_id == request.user

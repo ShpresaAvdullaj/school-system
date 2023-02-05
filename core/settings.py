@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "rest_framework",
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
+    "rest_pandas",
 
     "system_app",
     "users",
@@ -91,7 +92,7 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": "school_system2",
+        "NAME": "school",
         "USER": "postgres",
         "PASSWORD": "postgres",
         "HOST": "127.0.0.1",
@@ -157,9 +158,11 @@ REST_FRAMEWORK = {
 
 SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=120),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=2),
     'BLACKLIST_AFTER_ROTATION': True
 }
 
 AUTH_USER_MODEL = "users.CustomUser"
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+

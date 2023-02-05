@@ -23,9 +23,7 @@ class LogoutView(APIView):
 def registration_view(request):
     if request.method == "POST":
         serializer = RegistrationSerializer(data=request.data)
-
         data = {}
-
         if serializer.is_valid():
             account = serializer.save()
             data["response"] = "Registration successful!"
@@ -39,5 +37,4 @@ def registration_view(request):
             }
         else:
             data = serializer.errors
-
         return Response(data, status=status.HTTP_201_CREATED)

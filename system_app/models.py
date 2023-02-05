@@ -3,7 +3,6 @@ from django.core.validators import MaxValueValidator
 from django.contrib.postgres.fields import ArrayField
 from users.models import CustomUser
 import datetime
-from django.utils.dateparse import parse_date
 
 
 class TeacherProfile(models.Model):
@@ -14,8 +13,8 @@ class TeacherProfile(models.Model):
     phone = models.CharField(max_length=12, default=None)
     user_teacher = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name="teacher_profile")
 
-    def __str__(self):
-        return f"{self.first_name} {self.last_name}"
+    # def __str__(self):
+    #     return f"{self.first_name} {self.last_name}"
 
 
 GENDER = (
@@ -42,8 +41,8 @@ class StudentProfile(models.Model):
     # he can only create his data and update them
     user_student = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name="student_profile")
 
-    def __str__(self):
-        return f"{self.first_name} {self.last_name}"
+    # def __str__(self):
+    #     return f"{self.first_name} {self.last_name}"
 
 
 class Course(models.Model):
@@ -53,18 +52,16 @@ class Course(models.Model):
     wait_list = ArrayField(models.IntegerField(default=0), default=list)
     teacher = models.ForeignKey(TeacherProfile, related_name="course", on_delete=models.PROTECT)
     nr_assignments = models.IntegerField(default=0, validators=[MaxValueValidator(3)])
-    student = models.ManyToManyField(StudentProfile,
-                                     related_name="courses",
-                                     through="StudentsCourseRelation")
+    student = models.ManyToManyField(StudentProfile, related_name="courses")
 
-    def __str__(self):
-        return f"{self.subject}"
+    # def __str__(self):
+    #     return f"{self.subject}"
 
     @property
     def available(self):
         # if the course has started
         duration = datetime.datetime.now().date() - self.started.date()
-        if duration.days > 0:
+        if duration.days > 0 or self.nr_students > 10:
             return False
         return True
 
@@ -75,30 +72,36 @@ class Course(models.Model):
     """
 
 
-class StudentsCourseRelation(models.Model):
-    student_id = models.ForeignKey(StudentProfile, related_name="student", on_delete=models.CASCADE)
-    course_id = models.ForeignKey(Course, related_name="course", on_delete=models.CASCADE)
-
-    class Meta:
-        unique_together = (("student_id", "course_id"),)
-
-
 class Assignment(models.Model):
     student = models.ManyToManyField(StudentProfile,
                                      related_name="assignment_student")
-    course_id = models.ForeignKey(Course, related_name="assignment_course", on_delete=models.CASCADE)
-    content = models.FileField(verbose_name="assignment_content")
+    course = models.ForeignKey(Course, related_name="assignment_course", on_delete=models.CASCADE)
     subject = models.CharField(max_length=45)
 
-    def __str__(self):
-        return f"{self.subject}"
+    # def __str__(self):
+    #     return f"{self.subject}"
 
 
 class StudentAssignment(models.Model):
-    assignment_id = models.ForeignKey(Assignment, related_name="assignment_student", on_delete=models.CASCADE)
-    student_id = models.ForeignKey(StudentProfile, related_name="student_assignment", on_delete=models.CASCADE)
+    assignment = models.ForeignKey(Assignment, related_name="assignment_student", on_delete=models.CASCADE)
+    student = models.ForeignKey(StudentProfile, related_name="student_assignment", on_delete=models.CASCADE)
+    content = models.CharField(verbose_name="assignment_content", default=None, max_length=100)
     grade = models.FloatField(default=0)
+    created = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = (("assignment_id", "student_id"),)
+        unique_together = (("assignment", "student"),)
 
+    @property
+    def graded(self):
+        if self.grade:
+            return True
+        return False
+
+    @property # NOT CORRECT
+    def on_time(self):
+        course = Course.objects.get(assignment_course__assignment_student=self.id)
+        duration = self.created.date() - course.started.date()
+        if duration.days > 30:
+            return False
+        return True
