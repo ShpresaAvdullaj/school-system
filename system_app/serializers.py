@@ -48,7 +48,7 @@ class CourseSerializer(serializers.ModelSerializer):
     available = serializers.ReadOnlyField()
     student = StudentProfileSerializer(many=True, read_only=True)
     assignment_course = CreateAssignmentSerializer(many=True, read_only=True)
-    # teacher = serializers.CharField(source="teacher.first_name")
+    teacher = serializers.CharField(source="teacher.first_name", read_only=True)
 
     class Meta:
         model = Course

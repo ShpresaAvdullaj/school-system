@@ -1,6 +1,13 @@
-from users.permissions import (IsStudentOrReadOnly,
-                               IsTeacherOrReadOnly,
-                               IsAdminOrReadOnly)
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
+from rest_framework import viewsets
+from django.db.models import Sum
+from rest_framework.decorators import action
+import pandas as pd
+from django.http import HttpResponse
+from django.utils.encoding import smart_str
+from users.permissions import (IsStudentOrReadOnly, IsTeacherOrReadOnly, IsAdminOrReadOnly)
 from system_app.serializers import (StudentProfileSerializer,
                                     TeacherProfileSerializer,
                                     CourseSerializer,
@@ -8,17 +15,7 @@ from system_app.serializers import (StudentProfileSerializer,
                                     StudentAssignmentSerializer,
                                     StudentAssignmentGradeSerializer,
                                     UpdateCourseSerializer,)
-from system_app.models import (StudentProfile,
-                               TeacherProfile,
-                               Course,
-                               Assignment,
-                               StudentAssignment)
-from rest_framework import status
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
-from rest_framework import viewsets
-from django.db.models import Sum
-from rest_framework.decorators import action
+from system_app.models import (StudentProfile, TeacherProfile, Course, Assignment, StudentAssignment)
 
 
 class StudentProfileViewSet(viewsets.ModelViewSet):
@@ -75,8 +72,8 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
             return Response(outstanding.values("subject", "assignment_course__subject"))
 
     @action(detail=True, methods=["PUT"], serializer_class=[UpdateCourseSerializer])
-    def register_to_course(self, request, pk):
-        if str(self.request.user.student_profile.id) != pk:
+    def register_to_course(self, request, pk, course_pk):
+        if self.request.user.student_profile.id != pk:
             raise ValidationError({"error": "Please enter your correct ID!!"})
         courses = [course.id for course in Course.objects.all() if course.available]
         count = 0
@@ -88,10 +85,13 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
         student = StudentProfile.objects.get(pk=pk)
         serializer = UpdateCourseSerializer(student, data=request.data)
         if serializer.is_valid():
-            course = Course.objects.get(id=request.data.get('id'))
-            if request.data.get('id') not in courses:
+            course = Course.objects.get(id=course_pk)
+            if course_pk not in courses:
                 course.wait_list.append(pk)
+                course.save()
                 raise ValidationError({"error": "Please choose an available course!"})
+            if Course.objects.filter(student=pk, id=course_pk).exists():
+                raise ValidationError({"error": "You are already registered in this course!"})
             course.student.add(student)
             course.nr_students = course.nr_students + 1
             course.save()
@@ -154,7 +154,7 @@ class TeacherProfileViewSet(viewsets.ModelViewSet):
             serializer.save(course=course)
             return Response(serializer.data)
 
-    @action(detail=True, methods=["GET"])
+    @action(detail=True, methods=["GET"],)
     def student_assignments(self, request, pk, course_pk):
         assignments = StudentAssignment.objects.filter(assignment__course__teacher=pk, assignment__course=course_pk)
         return Response(assignments.values())
@@ -168,10 +168,113 @@ class TeacherProfileViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
 
 
-class CourseViewSet(viewsets.ModelViewSet):
+class AdminViewSet(viewsets.ModelViewSet):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
     permission_classes = [IsAdminOrReadOnly]
+
+    @action(detail=False, methods=["GET"],)
+    def new_students(self, request):
+        df = pd.read_csv("/home/shpresa/Desktop/school-system/new_students.csv")
+        dfg = df.dropna(subset=["first_name"]).loc[df["country"] != "Russia"]
+        dfg.to_excel("new_students.xlsx", sheet_name="new_students")
+        # return Response(dfg.to_json())
+        with open("new_students.xlsx", "rb") as file:
+            # response = HttpResponse(content_type="application/vnd.ms-excel")
+            response = HttpResponse(file.read(), content_type="application/force-download")
+            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("new_students.xlsx")
+            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/new_students.xlsx")
+            return response
+
+    @action(detail=False, methods=["GET"],)
+    def students_average(self, request):
+        df = pd.DataFrame(
+            list(StudentProfile.objects.all().values("id", "first_name", "student_assignment__grade"))).groupby(
+            by=["id", "first_name"]).apply(lambda x: x.sum() / x.count()).rename(
+            columns={"student_assignment__grade": "avg_grade"})
+        df.to_excel("students_average.xlsx", sheet_name="students_average")
+        # return Response(df.to_json())
+        with open("students_average.xlsx", "rb") as file:
+            # response = HttpResponse(content_type="application/vnd.ms-excel")
+            response = HttpResponse(file.read(), content_type="application/force-download")
+            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("students_average.xlsx")
+            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/students_average.xlsx")
+            return response
+
+    @action(detail=True, methods=["GET"], )
+    def student_progress(self, request, pk):
+        count = Course.objects.filter(student=pk).count()
+        df = pd.DataFrame(list(Course.objects.filter(student=pk).values("subject", "assignment_course__assignment_student__content"))).groupby(
+            "subject")[["assignment_course__assignment_student__content"]].apply(lambda x: x.count()/count).rename(
+            columns={"assignment_course__assignment_student__content": "progress"})
+        # print(df["progress"].sum()) general progression
+        df.to_excel("student_progress.xlsx", sheet_name="student_progress")
+        # return Response(df.to_json())
+        with open("student_progress.xlsx", "rb") as file:
+            response = HttpResponse(file.read(), content_type="application/vnd.ms-excel")
+            # response = HttpResponse(file.read(), content_type="application/force-download")
+            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("student_progress.xlsx")
+            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/student_progress.xlsx")
+            return response
+
+    @action(detail=True, methods=["GET"], )
+    def grade_report_student(self, request, pk):
+        df = pd.DataFrame(list(Course.objects.filter(student=pk).values("subject", "assignment_course__assignment_student__grade"))).groupby(
+            "subject").agg({"assignment_course__assignment_student__grade": lambda x: list(x)}).rename(
+            columns={"assignment_course__assignment_student__grade": "grades"})
+        df.to_excel("grade_report_student.xlsx", sheet_name="grade_report_student")
+        # return Response(df.to_json())
+        with open("grade_report_student.xlsx", "rb") as file:
+            response = HttpResponse(file.read(), content_type="application/vnd.ms-excel")
+            # response = HttpResponse(file.read(), content_type="application/force-download")
+            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("grade_report_student.xlsx")
+            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/grade_report_student.xlsx")
+            return response
+
+    @action(detail=False, methods=["GET"], )
+    def students_average_per_course(self, request):
+        df = pd.DataFrame(list(StudentProfile.objects.all().values("id", "first_name", "student_assignment__grade"))).groupby(
+            by=["id", "first_name"]).agg(list).rename(columns={"student_assignment__grade": "grades"})
+        df["average"] = df["grades"].apply(lambda x: sum(x)/3)
+        df.to_excel("students_average_per_course.xlsx", sheet_name="students_average_per_course")
+        # return Response(df.to_json())
+        with open("students_average_per_course.xlsx", "rb") as file:
+            response = HttpResponse(file.read(), content_type="application/vnd.ms-excel")
+            # response = HttpResponse(file.read(), content_type="application/force-download")
+            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("students_average_per_course.xlsx")
+            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/students_average_per_course.xlsx")
+            return response
+
+    @action(detail=False, methods=["GET"], )
+    def top_students(self, request):
+        df = pd.DataFrame(
+            list(StudentProfile.objects.all().values("id", "first_name", "student_assignment__grade"))).groupby(
+            by=["id", "first_name"]).apply(lambda x: x.sum() / x.count()).rename(
+            columns={"student_assignment__grade": "avg_grade"}).sort_values( by="avg_grade", ascending=False).iloc[:10]
+        df.to_excel("top_students.xlsx", sheet_name="top_students")
+        # return Response(df.to_json())
+        with open("top_students.xlsx", "rb") as file:
+            response = HttpResponse(file.read(), content_type="application/vnd.ms-excel")
+            # response = HttpResponse(file.read(), content_type="application/force-download")
+            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("top_students.xlsx")
+            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/top_students.xlsx")
+            return response
+
+    @action(detail=False, methods=["GET"], )
+    def best_performing_courses(self, request):
+        df = pd.DataFrame(list(Course.objects.all().values("id", "subject", "assignment_course__assignment_student__grade"))).groupby(
+            by=["id", "subject"]).apply(lambda x: (x.sum() / x.count())).rename(
+            columns={"assignment_course__assignment_student__grade": "average"})
+        dfg = df.loc[df["average"] > 5]
+        dfg.to_excel("best_performing_courses.xlsx", sheet_name="best_performing_courses")
+        # return Response(dfg.to_json())
+        with open("best_performing_courses.xlsx", "rb") as file:
+            response = HttpResponse(file.read(), content_type="application/vnd.ms-excel")
+            # response = HttpResponse(file.read(), content_type="application/force-download")
+            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("best_performing_courses.xlsx")
+            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/best_performing_courses.xlsx")
+            return response
+
 
 
 # class AssignmentGrade(generics.UpdateAPIView):

@@ -59,11 +59,10 @@ class Course(models.Model):
 
     @property
     def available(self):
-        # if the course has started
-        duration = datetime.datetime.now().date() - self.started.date()
-        if duration.days > 0 or self.nr_students > 10:
-            return False
-        return True
+        duration = self.started.date() - datetime.datetime.now().date()
+        if 0 < duration.days <= 90 and self.nr_students < 10:
+            return True
+        return False
 
     """
     Although using the @property decorator can help you access model methods as attributes, 
@@ -98,7 +97,7 @@ class StudentAssignment(models.Model):
             return True
         return False
 
-    @property # NOT CORRECT
+    @property # NOT CORRECT, or if duration/id modulo3 < 30
     def on_time(self):
         course = Course.objects.get(assignment_course__assignment_student=self.id)
         duration = self.created.date() - course.started.date()
