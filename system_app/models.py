@@ -13,8 +13,8 @@ class TeacherProfile(models.Model):
     phone = models.CharField(max_length=12, default=None)
     user_teacher = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name="teacher_profile")
 
-    # def __str__(self):
-    #     return f"{self.first_name} {self.last_name}"
+    def __str__(self):
+        return f"{self.first_name} {self.last_name}"
 
 
 GENDER = (
@@ -41,8 +41,8 @@ class StudentProfile(models.Model):
     # he can only create his data and update them
     user_student = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name="student_profile")
 
-    # def __str__(self):
-    #     return f"{self.first_name} {self.last_name}"
+    def __str__(self):
+        return f"{self.first_name} {self.last_name}"
 
 
 class Course(models.Model):
@@ -54,8 +54,8 @@ class Course(models.Model):
     nr_assignments = models.IntegerField(default=0, validators=[MaxValueValidator(3)])
     student = models.ManyToManyField(StudentProfile, related_name="courses")
 
-    # def __str__(self):
-    #     return f"{self.subject}"
+    def __str__(self):
+        return f"{self.subject}"
 
     @property
     def available(self):
@@ -72,13 +72,12 @@ class Course(models.Model):
 
 
 class Assignment(models.Model):
-    student = models.ManyToManyField(StudentProfile,
-                                     related_name="assignment_student")
+    student = models.ManyToManyField(StudentProfile, related_name="assignment_student")
     course = models.ForeignKey(Course, related_name="assignment_course", on_delete=models.CASCADE)
     subject = models.CharField(max_length=45)
 
-    # def __str__(self):
-    #     return f"{self.subject}"
+    def __str__(self):
+        return f"{self.subject}"
 
 
 class StudentAssignment(models.Model):
@@ -91,16 +90,16 @@ class StudentAssignment(models.Model):
     class Meta:
         unique_together = (("assignment", "student"),)
 
-    @property
-    def graded(self):
-        if self.grade:
-            return True
-        return False
-
-    @property # NOT CORRECT, or if duration/id modulo3 < 30
-    def on_time(self):
-        course = Course.objects.get(assignment_course__assignment_student=self.id)
-        duration = self.created.date() - course.started.date()
-        if duration.days > 30:
-            return False
-        return True
+    # @property
+    # def graded(self):
+    #     if self.grade:
+    #         return True
+    #     return False
+    #
+    # @property # NOT CORRECT, or if duration/id modulo3 < 30
+    # def on_time(self):
+    #     course = Course.objects.get(assignment_course__assignment_student=self.id)
+    #     duration = self.created.date() - course.started.date()
+    #     if duration.days > 30:
+    #         return False
+    #     return True

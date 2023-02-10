@@ -1,8 +1,9 @@
+import io
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from rest_framework import viewsets
-from django.db.models import Sum
+from django.db.models import Sum, Count
 from rest_framework.decorators import action
 import pandas as pd
 from django.http import HttpResponse
@@ -11,11 +12,14 @@ from users.permissions import (IsStudentOrReadOnly, IsTeacherOrReadOnly, IsAdmin
 from system_app.serializers import (StudentProfileSerializer,
                                     TeacherProfileSerializer,
                                     CourseSerializer,
+                                    CourseSerializers,
                                     CreateAssignmentSerializer,
                                     StudentAssignmentSerializer,
+                                    CourseAvailableSerializer,
                                     StudentAssignmentGradeSerializer,
                                     UpdateCourseSerializer,)
 from system_app.models import (StudentProfile, TeacherProfile, Course, Assignment, StudentAssignment)
+from collections import defaultdict
 
 
 class StudentProfileViewSet(viewsets.ModelViewSet):
@@ -33,34 +37,40 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
             raise ValidationError("You have already created your profile, but you can still update it.")
         serializer.save(user_student=self.request.user)
 
-    @action(detail=True, methods=["GET"], serializer_class=[CourseSerializer])
+    @action(detail=True, methods=["GET"], serializer_class=CourseAvailableSerializer)
     def course_available(self, request, pk):
         if str(self.request.user.student_profile.id) != pk:
             raise ValidationError({"error": "Please correct your correct id student! (URL)"})
         courses = [course.id for course in Course.objects.all() if course.available]
-        queryset = Course.objects.filter(id__in=courses).values()
-        return Response(queryset)
+        course = Course.objects.filter(id__in=courses)
+        serializer = self.get_serializer(course, many=True)
+        return Response(serializer.data)
 
-    @action(detail=True, methods=["GET"])
+    @action(detail=True, methods=["GET"],)
     def course_participating(self, request, pk):
         if str(self.request.user.student_profile.id) != pk:
             raise ValidationError({"error": "You are not allowed for this action!"})
-        course = Course.objects.filter(student=pk)
-        return Response(course.values("subject", "assignment_course__subject",
-                                      "assignment_course__assignment_student__grade"))
+        student = defaultdict(list)
+        course = StudentAssignment.objects.filter(student=pk).values("assignment__course__subject", "student_id", "grade")
+        for c in course:
+            student[c["assignment__course__subject"]].append(c["grade"])
+        return Response(student)
 
     @action(detail=True, methods=["GET"])
     def average_progress(self, request, pk, course_pk):
         if self.request.user.student_profile.id != pk:
             raise ValidationError({"error": "You are not allowed for this action!"})
         if Course.objects.filter(student=pk, id=course_pk).exists():
-            course = Course.objects.filter(student=pk, id=course_pk)
-            sum1 = course.aggregate(Sum("assignment_course__assignment_student__grade"))
-            avg_grade = sum1["assignment_course__assignment_student__grade__sum"]/course.values("assignment_course__assignment_student__grade").count()
-            course1 = Course.objects.filter(student=pk, id=course_pk,
-                                   assignment_course__assignment_student__content__isnull=False).count()
-            progress = course1/3
-            return Response({"course": course.values("subject"), "avg_grade": avg_grade, "progress": progress})
+            courses = Course.objects.filter(student=pk, id=course_pk)
+            if StudentAssignment.objects.filter(student=pk, assignment__course=course_pk).exists():
+                course = StudentAssignment.objects.filter(student=pk, assignment__course=course_pk)
+                sum1 = course.aggregate(Sum("grade"))
+                avg_grade = sum1["grade__sum"]/course.values("grade").count()
+                course1 = StudentAssignment.objects.filter(student=pk, assignment__course=course_pk, content__isnull=False).count()
+                progress = course1/3
+                return Response({"course": course.values("assignment__course__subject")[0]["assignment__course__subject"],
+                                 "avg_grade": avg_grade, "progress": progress})
+            return Response({"course": courses.values("subject")[0]["subject"], "avg_grade": 0, "progress": 0})
         return Response({"error": "No results found!!"})
 
     @action(detail=True, methods=["GET"])
@@ -70,6 +80,7 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
         outstanding = Course.objects.filter(student=pk, id=course_pk, assignment_course__assignment_student__content__isnull=True)
         if outstanding.exists():
             return Response(outstanding.values("subject", "assignment_course__subject"))
+        return Response({"Message": "You have no outstanding assignments for this course"})
 
     @action(detail=True, methods=["PUT"], serializer_class=[UpdateCourseSerializer])
     def register_to_course(self, request, pk, course_pk):
@@ -81,7 +92,7 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
             if Course.objects.filter(student=pk, id=i):
                 count += 1
         if count == 3:
-            raise ValidationError({"error": "You are already registered in available courses!"})
+            raise ValidationError({"error": "You are already registered in 3 available courses!"})
         student = StudentProfile.objects.get(pk=pk)
         serializer = UpdateCourseSerializer(student, data=request.data)
         if serializer.is_valid():
@@ -89,7 +100,7 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
             if course_pk not in courses:
                 course.wait_list.append(pk)
                 course.save()
-                raise ValidationError({"error": "Please choose an available course!"})
+                raise ValidationError({"error": "You are added in wait-list! Please choose an available course!"})
             if Course.objects.filter(student=pk, id=course_pk).exists():
                 raise ValidationError({"error": "You are already registered in this course!"})
             course.student.add(student)
@@ -99,9 +110,11 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
             return Response({'Message': 'Registration was successful!!!!'})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=True, methods=["GET"],)
+    @action(detail=True, methods=["GET"], serializer_class=CourseSerializers)
     def assignment_list(self, request, pk, course_pk):
-        return Response(Assignment.objects.filter(course_id=course_pk, course__student=pk).values("subject","assignment_student__content", "assignment_student__grade"))
+        course = Course.objects.filter(student=pk, id=course_pk)
+        serializer = CourseSerializers(course, many=True)
+        return Response(serializer.data)
 
     @action(detail=True, methods=["POST"], serializer_class=[StudentAssignmentSerializer])
     def submit_assignment(self, request, pk, course_pk, assignment_pk):
@@ -126,7 +139,7 @@ class TeacherProfileViewSet(viewsets.ModelViewSet):
             raise ValidationError("You have already created your profile, but you can still update it.")
         serializer.save(user_teacher=self.request.user)
 
-    @action(detail=True, methods=["GET"], serializer_class=CourseSerializer)
+    @action(detail=True, methods=["GET"], serializer_class=CourseSerializers)
     def course_teaching(self, request, pk):
         if pk != str(self.request.user.teacher_profile.id):
             raise ValidationError({"error": "You are not allowed for this action!"})
@@ -139,8 +152,14 @@ class TeacherProfileViewSet(viewsets.ModelViewSet):
     def students_signed(self, request, pk, course_pk):
         if pk != self.request.user.teacher_profile.id:
             raise ValidationError({"error": "You are not allowed for this action!"})
-        courses = Course.objects.filter(teacher_id=pk, id=course_pk)
-        return Response(courses.values("subject", "student__first_name"))
+        courses = Course.objects.filter(teacher_id=pk, id=course_pk).values("student", "student__first_name")
+        result = {}
+        for student in courses:
+            course1 = StudentAssignment.objects.filter(student=student["student"], assignment__course=course_pk,
+                                                   content__isnull=False).count()
+            progress = course1 / 3
+            result[student["student"]] = {"student": student["student__first_name"], "progress": progress}
+        return Response(result)
 
     @action(detail=True, methods=["POST"], serializer_class=[CreateAssignmentSerializer])
     def create_assignment(self, request, pk, course_pk):
@@ -157,7 +176,7 @@ class TeacherProfileViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["GET"],)
     def student_assignments(self, request, pk, course_pk):
         assignments = StudentAssignment.objects.filter(assignment__course__teacher=pk, assignment__course=course_pk)
-        return Response(assignments.values())
+        return Response({"assignment": assignments.values()})
 
     @action(detail=True, methods=["PATCH"], serializer_class=[StudentAssignmentGradeSerializer])
     def grade_assignment(self, request, pk, course_pk, assignment_pk):
@@ -171,357 +190,139 @@ class TeacherProfileViewSet(viewsets.ModelViewSet):
 class AdminViewSet(viewsets.ModelViewSet):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
-    permission_classes = [IsAdminOrReadOnly]
+    # permission_classes = [IsAdminOrReadOnly]
 
-    @action(detail=False, methods=["GET"],)
+    @action(detail=False, methods=["GET"])
     def new_students(self, request):
-        df = pd.read_csv("/home/shpresa/Desktop/school-system/new_students.csv")
-        dfg = df.dropna(subset=["first_name"]).loc[df["country"] != "Russia"]
-        dfg.to_excel("new_students.xlsx", sheet_name="new_students")
-        # return Response(dfg.to_json())
-        with open("new_students.xlsx", "rb") as file:
-            # response = HttpResponse(content_type="application/vnd.ms-excel")
-            response = HttpResponse(file.read(), content_type="application/force-download")
-            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("new_students.xlsx")
-            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/new_students.xlsx")
-            return response
+        filename = "new_students.xlsx"
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer) as writer:
+            d = pd.read_csv("/home/shpresa/Desktop/school-system/new_students.csv")
+            df = d.dropna(subset=["first_name"]).loc[d["country"] != "Russia"]
+            df.to_excel(writer, index=False)
+
+        response = HttpResponse(content=buffer.getvalue(), content_type="application/ms-excel")
+        response["Content-Disposition"] = f"attachment; filename={filename}"
+        return response
 
     @action(detail=False, methods=["GET"],)
     def students_average(self, request):
-        df = pd.DataFrame(
+        filename = "students_average.xlsx"
+        buffer = io.BytesIO()
+
+        # list of all the students and grade point average
+        df1 = pd.DataFrame(
             list(StudentProfile.objects.all().values("id", "first_name", "student_assignment__grade"))).groupby(
             by=["id", "first_name"]).apply(lambda x: x.sum() / x.count()).rename(
             columns={"student_assignment__grade": "avg_grade"})
-        df.to_excel("students_average.xlsx", sheet_name="students_average")
-        # return Response(df.to_json())
-        with open("students_average.xlsx", "rb") as file:
-            # response = HttpResponse(content_type="application/vnd.ms-excel")
-            response = HttpResponse(file.read(), content_type="application/force-download")
-            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("students_average.xlsx")
-            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/students_average.xlsx")
-            return response
 
-    @action(detail=True, methods=["GET"], )
-    def student_progress(self, request, pk):
-        count = Course.objects.filter(student=pk).count()
-        df = pd.DataFrame(list(Course.objects.filter(student=pk).values("subject", "assignment_course__assignment_student__content"))).groupby(
-            "subject")[["assignment_course__assignment_student__content"]].apply(lambda x: x.count()/count).rename(
-            columns={"assignment_course__assignment_student__content": "progress"})
-        # print(df["progress"].sum()) general progression
-        df.to_excel("student_progress.xlsx", sheet_name="student_progress")
-        # return Response(df.to_json())
-        with open("student_progress.xlsx", "rb") as file:
-            response = HttpResponse(file.read(), content_type="application/vnd.ms-excel")
-            # response = HttpResponse(file.read(), content_type="application/force-download")
-            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("student_progress.xlsx")
-            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/student_progress.xlsx")
-            return response
+        # all the students and their grade point average per course.
+        df2 = pd.DataFrame(
+            list(StudentProfile.objects.all().values("id", "first_name", "student_assignment__grade",
+                                                     "student_assignment__assignment__course__subject"))).rename(
+            columns={"student_assignment__grade": "grades", "student_assignment__assignment__course__subject": "Course"}).groupby(
+            by=["id", "first_name", "Course"]).agg(list)
+        df2["average"] = df2["grades"].apply(lambda x: sum(x)/3)
+        table = pd.pivot_table(df2, values="average", index="first_name", columns="Course")
 
-    @action(detail=True, methods=["GET"], )
-    def grade_report_student(self, request, pk):
-        df = pd.DataFrame(list(Course.objects.filter(student=pk).values("subject", "assignment_course__assignment_student__grade"))).groupby(
-            "subject").agg({"assignment_course__assignment_student__grade": lambda x: list(x)}).rename(
-            columns={"assignment_course__assignment_student__grade": "grades"})
-        df.to_excel("grade_report_student.xlsx", sheet_name="grade_report_student")
-        # return Response(df.to_json())
-        with open("grade_report_student.xlsx", "rb") as file:
-            response = HttpResponse(file.read(), content_type="application/vnd.ms-excel")
-            # response = HttpResponse(file.read(), content_type="application/force-download")
-            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("grade_report_student.xlsx")
-            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/grade_report_student.xlsx")
-            return response
+        with pd.ExcelWriter(buffer) as writer:
+            df1.to_excel(writer, sheet_name="students_average")
+            table.to_excel(writer, sheet_name="students_average_per_course")
 
-    @action(detail=False, methods=["GET"], )
-    def students_average_per_course(self, request):
-        df = pd.DataFrame(list(StudentProfile.objects.all().values("id", "first_name", "student_assignment__grade"))).groupby(
-            by=["id", "first_name"]).agg(list).rename(columns={"student_assignment__grade": "grades"})
-        df["average"] = df["grades"].apply(lambda x: sum(x)/3)
-        df.to_excel("students_average_per_course.xlsx", sheet_name="students_average_per_course")
-        # return Response(df.to_json())
-        with open("students_average_per_course.xlsx", "rb") as file:
-            response = HttpResponse(file.read(), content_type="application/vnd.ms-excel")
-            # response = HttpResponse(file.read(), content_type="application/force-download")
-            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("students_average_per_course.xlsx")
-            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/students_average_per_course.xlsx")
-            return response
+        response = HttpResponse(content=buffer.getvalue(), content_type="application/ms-excel")
+        response['Content-Disposition'] = f"attachment; filename={filename}"
+        return response
+
+    @action(detail=False, methods=["GET"])
+    def student_data(self, request, pk):
+        filename = "student_data.xlsx"
+        buffer = io.BytesIO()
+
+        # a student breakdown of the courses
+        df1 = pd.DataFrame(list(StudentAssignment.objects.filter(student=pk).values("assignment__course__subject", "content"))).rename(
+            columns={"assignment__course__subject": "subject", "content": "progress"}).groupby(
+            "assignment__course__subject")[["content"]].apply(lambda x: x.count()/3)
+        # df = pd.Series({"subject": "general progression", "progress": df1["progress"].sum()})
+        # pd.concat([df1, df.to_frame().T], ignore_index=True)
+
+        # a grade report per student
+        df2 = pd.DataFrame(list(StudentAssignment.objects.filter(student=pk).values("assignment__course__subject", "grade"))).rename(
+            columns={"assignment__course__subject": "subject"}).groupby(
+            "subject").agg({"grade": lambda x: list(x)})
+
+        with pd.ExcelWriter(buffer) as writer:
+            df1.to_excel(writer, sheet_name="student_progress")
+            df2.to_excel(writer, sheet_name="student_grade_report")
+
+        response = HttpResponse(content=buffer.getvalue(), content_type="application/ms-excel")
+        response["Content-Disposition"] = f"attachment; filename={filename}"
+        return response
 
     @action(detail=False, methods=["GET"], )
-    def top_students(self, request):
-        df = pd.DataFrame(
+    def top_students_courses(self, request):
+        filename = "top_students_courses.xlsx"
+        buffer = io.BytesIO()
+
+        # top 10 students
+        df1 = pd.DataFrame(
             list(StudentProfile.objects.all().values("id", "first_name", "student_assignment__grade"))).groupby(
             by=["id", "first_name"]).apply(lambda x: x.sum() / x.count()).rename(
-            columns={"student_assignment__grade": "avg_grade"}).sort_values( by="avg_grade", ascending=False).iloc[:10]
-        df.to_excel("top_students.xlsx", sheet_name="top_students")
-        # return Response(df.to_json())
-        with open("top_students.xlsx", "rb") as file:
-            response = HttpResponse(file.read(), content_type="application/vnd.ms-excel")
-            # response = HttpResponse(file.read(), content_type="application/force-download")
-            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("top_students.xlsx")
-            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/top_students.xlsx")
-            return response
+            columns={"student_assignment__grade": "avg_grade"}).sort_values(by="avg_grade", ascending=False).iloc[:10]
 
-    @action(detail=False, methods=["GET"], )
-    def best_performing_courses(self, request):
-        df = pd.DataFrame(list(Course.objects.all().values("id", "subject", "assignment_course__assignment_student__grade"))).groupby(
+        # the best performing courses
+        df = pd.DataFrame(
+            list(Course.objects.all().values("id", "subject", "assignment_course__assignment_student__grade"))).groupby(
             by=["id", "subject"]).apply(lambda x: (x.sum() / x.count())).rename(
             columns={"assignment_course__assignment_student__grade": "average"})
-        dfg = df.loc[df["average"] > 5]
-        dfg.to_excel("best_performing_courses.xlsx", sheet_name="best_performing_courses")
-        # return Response(dfg.to_json())
-        with open("best_performing_courses.xlsx", "rb") as file:
-            response = HttpResponse(file.read(), content_type="application/vnd.ms-excel")
-            # response = HttpResponse(file.read(), content_type="application/force-download")
-            response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("best_performing_courses.xlsx")
-            response["X-Sendfile"] = smart_str("/home/shpresa/Desktop/school-system/best_performing_courses.xlsx")
-            return response
+        df2 = df.loc[df["average"] > 5]
 
+        with pd.ExcelWriter(buffer) as writer:
+            df1.to_excel(writer, sheet_name="top_students")
+            df2.to_excel(writer, sheet_name="best_performing_courses")
 
+        response = HttpResponse(content=buffer.getvalue(), content_type="application/ms-excel")
+        response['Content-Disposition'] = f'attachment; filename={filename}'
+        return response
 
-# class AssignmentGrade(generics.UpdateAPIView):
-#     serializer_class = StudentAssignmentGradeSerializer
-#     permission_classes = [IsTeacherOrReadOnly]
+    # @action(detail=False, methods=["GET"], )
+    # def best_performing_courses(self, request):
+    #     df = pd.DataFrame(list(Course.objects.all().values("id", "subject", "assignment_course__assignment_student__grade"))).groupby(
+    #         by=["id", "subject"]).apply(lambda x: (x.sum() / x.count())).rename(
+    #         columns={"assignment_course__assignment_student__grade": "average"})
+    #     dfg = df.loc[df["average"] > 5]
+    #     dfg.to_excel("best_performing_courses.xlsx", sheet_name="best_performing_courses")
+    #     with open("best_performing_courses.xlsx", "rb") as file:
+    #         response = HttpResponse(file.read(), content_type="application/vnd.ms-excel")
+    #         response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("best_performing_courses.xlsx")
+    #         return response
+
+# from django.core import mail
+# subject = "This course is available!"
+# body = "We invite you to register in this course!"
+# from1 = "shpresa@gmail.com"
+# to = StudentProfile.objects.get(id=Course.objects.get(id=3).wait_list[0]).email
 #
-#     def get_queryset(self):
-#         pk = self.kwargs.get("pk")
-#         return StudentAssignment.objects.filter(pk=pk)
-#
-#     def perform_update(self, serializer):
-#         pk = self.kwargs.get("pk")
-#         assignment = StudentAssignment.objects.get(pk=pk)
-#         assignment1 = StudentsCourseRelation.objects.get(course_id__assignment_course__assignment_student=assignment.id, student_id__student_assignment=assignment.id)
-#         assignment1.grades.append(serializer.validated_data["grade"])
-#         assignment1.avg_grade = (sum(assignment1.grades) + serializer.validated_data["grade"])/3
-#         assignment1.save()
-#         serializer.save()
+# with mail.get_connection() as connection:
+#     mail.EmailMessage(
+#         subject, body, from1, [to],
+#         connection=connection,
+#     ).send()
 
 
-# class CourseParticipatingRegisterViewSet(viewsets.ModelViewSet):
-#     serializer_class = CourseStudentSerializer
-    # permission_classes = [IsStudentOrReadOnly, IsAuthenticated]
-    #
-    # # Register for new courses.
-    # # to allow a list with data, ListSerializer
-    # # bulk_create does not work with many-to-many relationships
-    # def get_serializer(self, *args, **kwargs):
-    #     if isinstance(kwargs.get("data", {}), list):
-    #         kwargs["many"] = True
-    #
-    #     return super(CourseParticipatingRegisterViewSet, self).get_serializer(*args, **kwargs)
+"""
+The HTTP Content Disposition is a response-type header field that gives information 
+on how to process the response payload and additional information such as filename 
+when user saves it locally. This response header field holds a number of values and 
+parameters in the larger context of MIME (Multipurpose Internet Mail Extensions). 
+However, it reduces to a fixed set of parameters and values under HTTP forms and 
+POST requests. 
 
-    # to make sure that the id that the student enters is the same of student_id
-    # that the request.user.student_profile has
-    # to register in exactly three available courses
-    # course capacity is 10 students
-    # def perform_create(self, serializer):
-    #     pk = self.kwargs.get("student_pk")
-    #     student = StudentProfile.objects.get(pk=pk)
-    #     if self.request.user.student_profile.id != pk:
-    #         raise ValidationError({"error": "Please enter your correct ID!!"})
-    #     courses = [course.id for course in Course.objects.all() if course.available]
-    #     count = 0
-        # for i in courses:
-        #     if StudentsCourseRelation.objects.filter(student_id=student, course_id=i):
-        #         count += 1
-        # if count > 0:
-        #     raise ValidationError({"error": "You are already registered in available courses!"})
-        # if len(serializer.validated_data) != 3:
-        #     raise ValidationError({"error": "You must register in exactly 3 courses!"})
-        # for i in range(3):
-        #     if serializer.validated_data[i]["course_id"].id not in courses:
-        #         raise ValidationError({"error": "Please choose an available course!"})
-        #     course = Course.objects.get(id=serializer.validated_data[i]["course_id"].id)
-        #     if course.nr_students < 10:
-        #         course.nr_students = course.nr_students + 1
-        #     else:
-        #         course.wait_list.append(pk)
-        #     course.save()
-        # serializer.save(student_id=student)
-
-
-# class AssignmentViewSet(viewsets.ModelViewSet):
-#     serializer_class = AssignmentSerializer
-#     permission_classes = [IsTeacherOrReadOnly, IsAuthenticated]
-
-    # LIST OF ASSIGNMENTS PER COURSES THAT HE TEACHING
-    # def get_queryset(self):
-    #     pk = self.kwargs.get("course_pk")
-    #     pk1 = self.kwargs.get("teacher_pk")
-    #     assignment = Assignment.objects.filter(course_id=pk, course__teacher=pk1)
-    #     return assignment
-
-    # CREATE ASSIGNMENTS FOR COURSES THAT HE TEACHING
-
-    # def perform_create(self, serializer):
-    #     pk = self.kwargs.get("course_pk")
-    #     pk1 = self.kwargs.get("teacher_pk")
-    #     course = Course.objects.get(pk=pk, teacher_id=pk1)
-    #     if course.nr_assignments >= 3:
-    #         raise ValidationError({"error": "You can not create more than 3 assignments for each course!!"})
-    #     course.nr_assignments = course.nr_assignments + 1
-    #     course.save()
-    #     serializer.save(course_id=course.id)
-    #
-
-# # LIST OF ASSIGNMENTS PER COURSES THAT HE PARTICIPATES
-# class AssignmentStudentParticipate(generics.ListAPIView):
-#     permission_classes = [IsStudentOrReadOnly]
-#     serializer_class = AssignmentSerializer
-#
-#     def get_queryset(self):
-#         pk = self.kwargs.get("course_pk")
-#         pk1 = self.kwargs.get("student_pk")
-#         assignment = Assignment.objects.filter(course_id=pk, course__student=pk1)
-#         return assignment
-
-from django.core.exceptions import ObjectDoesNotExist
-
-# OUTSTANDING ASSIGNMENT
-# class OutstandingAssignments(generics.ListAPIView):
-#     # permission_classes = [IsStudentOrReadOnly]
-#     serializer_class = AssignmentSerializer
-#
-#     def get_queryset(self):
-#         pk = self.kwargs.get("course_pk")
-#         pk1 = self.kwargs.get("student_pk")
-#         for assign in Assignment.objects.filter(course_id=pk, course__student=pk1):
-#             try:
-#                 StudentAssignment.objects.filter(assignment_id=assign.id, student_id=pk1)
-#                 return assign
-#             except ObjectDoesNotExist:
-#                 return assign
-
-
-
-# SUBMIT AN ASSIGNMENT
-# class AssignmentSubmit(generics.CreateAPIView):
-#     permission_classes = [IsStudentOrReadOnly]
-    # serializer_class = StudentAssignmentSerializer
-    #
-    # def perform_create(self, serializer):
-    #     pk = self.kwargs.get("student_pk")
-    #     pk1 = self.kwargs.get("assignment_pk")
-    #     serializer.save(student_id=pk, assignment_id=pk1)
-
-
-# GRADE AN ASSIGNMENT
-# class AssignmentGrade(generics.UpdateAPIView):
-    # serializer_class = StudentAssignmentGradeSerializer
-    # permission_classes = [IsTeacherOrReadOnly]
-    #
-    # def get_queryset(self):
-    #     pk = self.kwargs.get("pk")
-    #     return StudentAssignment.objects.filter(pk=pk)
-    #
-    # def perform_update(self, serializer):
-    #     pk = self.kwargs.get("pk")
-    #     assignment = StudentAssignment.objects.get(pk=pk)
-    #     assignment1 = StudentsCourseRelation.objects.get(course_id__assignment_course__assignment_student=assignment.id, student_id__student_assignment=assignment.id)
-    #     assignment1.grades.append(serializer.validated_data["grade"])
-    #     assignment1.avg_grade = (sum(assignment1.grades) + serializer.validated_data["grade"])/3
-    #     assignment1.save()
-    #     serializer.save()
-
-# will recognize the new student as a specific user
-# def get_object(self):
-#     return self.request.user
-
-"""@action is used to make methods in existing ViewSets routable:
+@action is used to make methods in existing ViewSets routable:
 If you have ad-hoc methods that should be routable, you can mark them as such with the @action decorator.
-@api_view "converts" normal function based view functions to DRF views. """
+@api_view "converts" normal function based view functions to DRF views. 
 
-
-# from system_app.models import (StudentProfile,
-#                                StudentsCourseRelation)
-# import pandas as pd
-# from rest_framework.response import Response
-# from rest_framework.views import APIView
-# from users.permissions import IsAdminOrReadOnly
-#
-# # - view list of all the students and grade point average.
-# class ListStudents(APIView):
-#     # permission_classes = [IsAdminOrReadOnly]
-#
-#     def get(self, request, format=None):
-#         df = pd.DataFrame(list(StudentsCourseRelation.objects.all().values("student_id", "avg_grade"))).groupby("student_id").mean()
-#         return Response(df.to_json())
-#
-# # Generate a grade report per student.
-# # If you click on a student you can see the breakdown of the courses
-# class GradeReportPerStudent(APIView):
-#     # permission_classes = [IsAdminOrReadOnly]
-#
-#     def get(self, request, pk, format=None):
-#         df = pd.DataFrame(list(StudentsCourseRelation.objects.filter(student_id_id=pk).values("student_id", "course_id", "grades", "avg_grade"))).groupby("student_id", group_keys=True).apply(lambda x: x)
-#         df["progress"] = df["grades"].str.len() / 3
-#         # print(df["progress"].sum()) general progression
-#         return Response(df.to_json())
-#
-#
-# #  View top 10 students in the school
-# class BestStudents(APIView):
-#     # permission_classes = [IsAdminOrReadOnly]
-#
-#     def get(self, request, format=None):
-#         df = pd.DataFrame(list(StudentsCourseRelation.objects.all()
-#                                .values("student_id", "avg_grade"))).groupby("student_id").mean().sort_values(
-#             by="avg_grade", ascending=False).iloc[:10]
-#         return Response(df.to_json())
-#
-# """
-# Label vs. Location
-# The main distinction between the two methods is:
-# loc gets rows (and/or columns) with particular labels.
-# iloc gets rows (and/or columns) at integer locations.
-# """
-#
-#
-# # -View the best performing courses with average grade above 80 %
-# class BestPerformingCourses(APIView):
-#     # permission_classes = [IsAdminOrReadOnly]
-#
-#     def get(self, request, format=None):
-#         df = pd.DataFrame(list(StudentsCourseRelation.objects.all().values("course_id", "avg_grade"))).groupby(
-#             "course_id").mean()
-#         d = df.apply(lambda row: row[df["avg_grade"] > 5])
-#         return Response(d.to_json())
-#
-#
-# #  View all the students grouped by - country
-# class GroupByGender(APIView):
-#     # permission_classes = [IsAdminOrReadOnly]
-#
-#     def get(self, request, format=None):
-#         df = pd.DataFrame(list(StudentProfile.objects.all().values())).groupby("gender", group_keys=True).apply(lambda x: x)
-#         return Response(df.to_json())
-#
-#
-# #  View all the students grouped by - country
-# class GroupByCountry(APIView):
-#     # permission_classes = [IsAdminOrReadOnly]
-#
-#     def get(self, request, format=None):
-#         df = pd.DataFrame(list(StudentProfile.objects.all().values())).groupby("country", group_keys=True).apply(lambda x: x)
-#         return Response(df.to_json())
-#
-#
-# # -Generate a report that contains all the students and their grade point average per course.
-# class StudentAveragePerCourse(APIView):
-#     # permission_classes = [IsAdminOrReadOnly]
-#
-#     def get(self, request, format=None):
-#         df = pd.DataFrame(list(StudentsCourseRelation.objects.all().values("student_id","course_id","avg_grade"))).groupby("student_id", group_keys=True).apply(lambda x: x)
-#         return Response(df.to_json())
-#
-#
-# # Admin needs to import a list of incoming students for the new year.
-# # - Filter out all the students where the name is blank
-# # - Filter out students from Russia since there is an embargo.
-# class ListNewStudents(APIView):
-#     # permission_classes = [IsAdminOrReadOnly]
-#
-#     def get(self, request, format=None):
-#         df = pd.read_csv("/home/shpresa/Desktop/school-system/new_students.csv")
-#         dfg = df.dropna(subset=["first_name"]).loc[df["country"] != "Russia"]
-#         return Response(dfg.to_json(indent=2, orient='records', lines=True))
-#
-#
+Label vs. Location
+The main distinction between the two methods is:
+loc gets rows (and/or columns) with particular labels.
+iloc gets rows (and/or columns) at integer locations.
+"""

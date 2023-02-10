@@ -44,10 +44,12 @@ urlpatterns = [
     path("admin/course-list/<int:pk>/", AdminViewSet.as_view({"get": "list"}), name="course-list"),
     path("admin/new_students/", AdminViewSet.as_view({"get": "new_students"}), name="new-students"),
     path("admin/students_average/", AdminViewSet.as_view({"get": "students_average"}), name="students_average"),
-    path("admin/student/<int:pk>/student_progress/", AdminViewSet.as_view({"get": "student_progress"}), name="student_progress"),
-    path("admin/student/<int:pk>/grade_report_student/", AdminViewSet.as_view({"get": "grade_report_student"}), name="grade_report_student"),
-    path("admin/students_average_per_course/", AdminViewSet.as_view({"get": "students_average_per_course"}), name="students_average_per_course"),
-    path("admin/top_students/", AdminViewSet.as_view({"get": "top_students"}), name="top_students"),
-    path("admin/best_performing_courses/", AdminViewSet.as_view({"get": "best_performing_courses"}), name="best_performing_courses"),
+    path("admin/student/<int:pk>/student_data/", AdminViewSet.as_view({"get": "student_data"}), name="student_data"),
+    path("admin/top_students_courses/", AdminViewSet.as_view({"get": "top_students_courses"}), name="top_students"),
 
 ]
+
+# path("admin/student/<int:pk>/student_progress/", AdminViewSet.as_view({"get": "student_progress"}), name="student_progress"),
+# path("admin/student/<int:pk>/grade_report_student/", AdminViewSet.as_view({"get": "grade_report_student"}), name="grade_report_student"),
+# path("admin/best_performing_courses/", AdminViewSet.as_view({"get": "best_performing_courses"}), name="best_performing_courses"),
+# path("admin/students_average_per_course/", AdminViewSet.as_view({"get": "students_average_per_course"}), name="students_average_per_course"),
