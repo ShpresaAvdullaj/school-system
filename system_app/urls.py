@@ -41,7 +41,8 @@ urlpatterns = [
 
     path("admin/create-course/", AdminViewSet.as_view({"post": "create"}), name="course-create"),
     path("admin/course-list/", AdminViewSet.as_view({"get": "list"}), name="course-list"),
-    path("admin/course-list/<int:pk>/", AdminViewSet.as_view({"get": "list"}), name="course-list"),
+    path("admin/course-list/<int:pk>/", AdminViewSet.as_view({"put": "update"}), name="course-list"),
+    # path("sending_mail/", AdminViewSet.as_view({"get": "sending_mail"})),
     path("admin/new_students/", AdminViewSet.as_view({"get": "new_students"}), name="new-students"),
     path("admin/students_average/", AdminViewSet.as_view({"get": "students_average"}), name="students_average"),
     path("admin/student/<int:pk>/student_data/", AdminViewSet.as_view({"get": "student_data"}), name="student_data"),

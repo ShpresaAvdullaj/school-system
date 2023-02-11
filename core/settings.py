@@ -155,11 +155,11 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
-    'DEFAULT_RENDERER_CLASSES': [
-        'rest_framework.renderers.JSONRenderer',
-        'rest_framework.renderers.BrowsableAPIRenderer',
-        'drf_excel.renderers.XLSXRenderer',
-    ],
+    # 'DEFAULT_RENDERER_CLASSES': [
+    #     'rest_framework.renderers.JSONRenderer',
+    #     'rest_framework.renderers.BrowsableAPIRenderer',
+    #     'drf_excel.renderers.XLSXRenderer',
+    # ],
 
 }
 
@@ -173,9 +173,9 @@ SIMPLE_JWT = {
 AUTH_USER_MODEL = "users.CustomUser"
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = '465'
+EMAIL_PORT = 587
 EMAIL_HOST_USER = "shpresa.avdullaj@gmail.com"
-EMAIL_HOST_PASSWORD = "ergi2512"
-EMAIL_USE_SSL = True
+EMAIL_HOST_PASSWORD = "arbpzbwiawzkvkkh"
+EMAIL_USE_SSL = False
 EMAIL_USE_TLS = True
 # DEFAULT_FROM_EMAIL = "*******"

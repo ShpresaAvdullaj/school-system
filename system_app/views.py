@@ -3,7 +3,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from rest_framework import viewsets
-from django.db.models import Sum
+from django.db.models import Avg
 from rest_framework.decorators import action
 import pandas as pd
 from django.http import HttpResponse
@@ -20,6 +20,8 @@ from system_app.serializers import (StudentProfileSerializer,
                                     UpdateCourseSerializer,)
 from system_app.models import (StudentProfile, TeacherProfile, Course, Assignment, StudentAssignment)
 from collections import defaultdict
+from django.conf import settings
+from django.core.mail import send_mail
 
 
 class StudentProfileViewSet(viewsets.ModelViewSet):
@@ -51,7 +53,10 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
         if str(self.request.user.student_profile.id) != pk:
             raise ValidationError({"error": "You are not allowed for this action!"})
         student = defaultdict(list)
-        course = StudentAssignment.objects.filter(student=pk).values("assignment__course__subject", "student_id", "grade")
+        courses = Course.objects.filter(student=pk).values("subject")
+        for course in courses:
+            student[course["subject"]] = []
+        course = StudentAssignment.objects.filter(student=pk).values("assignment__course__subject", "grade")
         for c in course:
             student[c["assignment__course__subject"]].append(c["grade"])
         return Response(student)
@@ -60,16 +65,14 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
     def average_progress(self, request, pk, course_pk):
         if self.request.user.student_profile.id != pk:
             raise ValidationError({"error": "You are not allowed for this action!"})
-        if Course.objects.filter(student=pk, id=course_pk).exists():
+        if Course.objects.filter(student=pk, id=course_pk):
             courses = Course.objects.filter(student=pk, id=course_pk)
-            if StudentAssignment.objects.filter(student=pk, assignment__course=course_pk).exists():
-                course = StudentAssignment.objects.filter(student=pk, assignment__course=course_pk)
-                sum1 = course.aggregate(Sum("grade"))
-                avg_grade = sum1["grade__sum"]/course.values("grade").count()
+            if StudentAssignment.objects.filter(student=pk, assignment__course=course_pk):
+                course = StudentAssignment.objects.filter(student=pk, assignment__course=course_pk).aggregate(Avg("grade"))
                 course1 = StudentAssignment.objects.filter(student=pk, assignment__course=course_pk, content__isnull=False).count()
                 progress = course1/3
-                return Response({"course": course.values("assignment__course__subject")[0]["assignment__course__subject"],
-                                 "avg_grade": avg_grade, "progress": progress})
+                return Response({"course": courses.values("subject")[0]["subject"],
+                                 "avg_grade": course["grade__avg"], "progress": progress})
             return Response({"course": courses.values("subject")[0]["subject"], "avg_grade": 0, "progress": 0})
         return Response({"error": "No results found!!"})
 
@@ -193,6 +196,27 @@ class AdminViewSet(viewsets.ModelViewSet):
     # permission_classes = [IsAdminOrReadOnly]
 
     @action(detail=False, methods=["GET"])
+    def update(self, request, pk):
+        course = Course.objects.get(id=pk)
+        serializer = self.get_serializer(course, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            if course.id in [course.id for course in Course.objects.all() if course.available]:
+                course = Course.objects.get(id=pk)
+                send_mail(
+                    subject='Email for available courses!',
+                    message=f'We would like to inform you that the course {course.subject} is available now!'
+                            f' You can register!',
+                    from_email=settings.EMAIL_HOST_USER,
+                    recipient_list=[StudentProfile.objects.get(id=course.wait_list[0]).email],
+                    # recipient_list=['shpresa.avdullaj@fshnstudent.info'],
+                )
+                course.wait_list.pop(0)
+                course.save()
+                return Response({"message": "Mail sent successfully + Course updated successfully!!!!!"})
+        return Response({"message": "Course updated successfully!!!"})
+
+    @action(detail=False, methods=["GET"])
     def new_students(self, request):
         filename = "new_students.xlsx"
         buffer = io.BytesIO()
@@ -296,17 +320,6 @@ class AdminViewSet(viewsets.ModelViewSet):
     #         response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("best_performing_courses.xlsx")
     #         return response
 
-# from django.core import mail
-# subject = "This course is available!"
-# body = "We invite you to register in this course!"
-# from1 = "shpresa@gmail.com"
-# to = StudentProfile.objects.get(id=Course.objects.get(id=3).wait_list[0]).email
-#
-# with mail.get_connection() as connection:
-#     mail.EmailMessage(
-#         subject, body, from1, [to],
-#         connection=connection,
-#     ).send()
 
 
 """
