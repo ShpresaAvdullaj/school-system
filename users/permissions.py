@@ -1,7 +1,6 @@
 from rest_framework import permissions
 from rest_framework.exceptions import APIException
 from rest_framework import status
-from system_app.models import StudentProfile
 
 
 class PermissionDenied(APIException):

@@ -18,7 +18,7 @@ from system_app.serializers import (StudentProfileSerializer,
                                     CourseAvailableSerializer,
                                     StudentAssignmentGradeSerializer,
                                     UpdateCourseSerializer,)
-from system_app.models import (StudentProfile, TeacherProfile, Course, Assignment, StudentAssignment)
+from system_app.models import (StudentProfile, TeacherProfile, Course, StudentAssignment)
 from collections import defaultdict
 from django.conf import settings
 from django.core.mail import send_mail
@@ -48,7 +48,7 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(course, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=["GET"],)
+    @action(detail=True, methods=["GET"],) # time = 0.00421
     def course_participating(self, request, pk):
         if str(self.request.user.student_profile.id) != pk:
             raise ValidationError({"error": "You are not allowed for this action!"})
@@ -65,9 +65,9 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
     def average_progress(self, request, pk, course_pk):
         if self.request.user.student_profile.id != pk:
             raise ValidationError({"error": "You are not allowed for this action!"})
-        if Course.objects.filter(student=pk, id=course_pk):
+        if Course.objects.filter(student=pk, id=course_pk).exists():
             courses = Course.objects.filter(student=pk, id=course_pk)
-            if StudentAssignment.objects.filter(student=pk, assignment__course=course_pk):
+            if StudentAssignment.objects.filter(student=pk, assignment__course=course_pk).exists():
                 course = StudentAssignment.objects.filter(student=pk, assignment__course=course_pk).aggregate(Avg("grade"))
                 course1 = StudentAssignment.objects.filter(student=pk, assignment__course=course_pk, content__isnull=False).count()
                 progress = course1/3
@@ -151,7 +151,7 @@ class TeacherProfileViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(courses, many=True)
             return Response(serializer.data)
 
-    @action(detail=True, methods=["GET"],)
+    @action(detail=True, methods=["GET"],) # time = 0.007
     def students_signed(self, request, pk, course_pk):
         if pk != self.request.user.teacher_profile.id:
             raise ValidationError({"error": "You are not allowed for this action!"})
@@ -193,9 +193,9 @@ class TeacherProfileViewSet(viewsets.ModelViewSet):
 class AdminViewSet(viewsets.ModelViewSet):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
-    # permission_classes = [IsAdminOrReadOnly]
+    permission_classes = [IsAdminOrReadOnly]
 
-    @action(detail=False, methods=["GET"])
+    @action(detail=False, methods=["PUT"])
     def update(self, request, pk):
         course = Course.objects.get(id=pk)
         serializer = self.get_serializer(course, data=request.data)
@@ -221,7 +221,7 @@ class AdminViewSet(viewsets.ModelViewSet):
         filename = "new_students.xlsx"
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer) as writer:
-            d = pd.read_csv("/home/shpresa/Desktop/school-system/new_students.csv")
+            d = pd.read_csv("/usr/src/app/new_students.csv")
             df = d.dropna(subset=["first_name"]).loc[d["country"] != "Russia"]
             df.to_excel(writer, index=False)
 
@@ -338,4 +338,11 @@ Label vs. Location
 The main distinction between the two methods is:
 loc gets rows (and/or columns) with particular labels.
 iloc gets rows (and/or columns) at integer locations.
+
+
+The Dockerfile is used to build images while the docker-compose.yaml file is used to run images.
+The Dockerfile uses the docker build command, while the docker-compose.yaml file uses the 
+docker-compose up command.
+A docker-compose.yaml file can reference a Dockerfile, but a Dockerfile can’t reference a 
+docker-compose file.
 """
