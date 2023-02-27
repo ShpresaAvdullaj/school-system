@@ -37,8 +37,6 @@ class StudentProfile(models.Model):
     gender = models.CharField(choices=GENDER, default=None, max_length=35)
     country = models.CharField(max_length=32, default=None)
     birth_date = models.DateTimeField(default=None)
-    # the user with role student is created, so when a student logged in, he is already a user,
-    # he can only create his data and update them
     user_student = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name="student_profile")
 
     def __str__(self):
@@ -63,12 +61,6 @@ class Course(models.Model):
         if 0 < duration.days <= 90 and self.nr_students < 10:
             return True
         return False
-
-    """
-    Although using the @property decorator can help you access model methods as attributes, 
-    you can't filter QuerySets by them, use them for ordering, or any other operation that 
-    makes use of the database engine.
-    """
 
 
 class Assignment(models.Model):

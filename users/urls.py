@@ -12,11 +12,4 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/token/blacklist/', TokenBlacklistView.as_view(), name='token_blacklist'),
-
 ]
-"""
-The blacklist app also provides a management command, flushexpiredtokens,
-which will delete any tokens from the outstanding list and blacklist that 
-have expired. You should set up a cron job on your server or hosting 
-platform which runs this command daily.
-"""

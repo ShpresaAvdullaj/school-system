@@ -7,7 +7,6 @@ from django.db.models import Avg
 from rest_framework.decorators import action
 import pandas as pd
 from django.http import HttpResponse
-from django.utils.encoding import smart_str
 from users.permissions import (IsStudentOrReadOnly, IsTeacherOrReadOnly, IsAdminOrReadOnly)
 from system_app.serializers import (StudentProfileSerializer,
                                     TeacherProfileSerializer,
@@ -48,7 +47,7 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(course, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=["GET"],) # time = 0.00421
+    @action(detail=True, methods=["GET"],)
     def course_participating(self, request, pk):
         if str(self.request.user.student_profile.id) != pk:
             raise ValidationError({"error": "You are not allowed for this action!"})
@@ -68,8 +67,10 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
         if Course.objects.filter(student=pk, id=course_pk).exists():
             courses = Course.objects.filter(student=pk, id=course_pk)
             if StudentAssignment.objects.filter(student=pk, assignment__course=course_pk).exists():
-                course = StudentAssignment.objects.filter(student=pk, assignment__course=course_pk).aggregate(Avg("grade"))
-                course1 = StudentAssignment.objects.filter(student=pk, assignment__course=course_pk, content__isnull=False).count()
+                course = StudentAssignment.objects.filter(student=pk,
+                                                          assignment__course=course_pk).aggregate(Avg("grade"))
+                course1 = StudentAssignment.objects.filter(student=pk, assignment__course=course_pk,
+                                                           content__isnull=False).count()
                 progress = course1/3
                 return Response({"course": courses.values("subject")[0]["subject"],
                                  "avg_grade": course["grade__avg"], "progress": progress})
@@ -80,7 +81,8 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
     def outstanding_assignments(self, request, pk, course_pk):
         if self.request.user.student_profile.id != pk:
             raise ValidationError({"error": "You are not allowed for this action!"})
-        outstanding = Course.objects.filter(student=pk, id=course_pk, assignment_course__assignment_student__content__isnull=True)
+        outstanding = Course.objects.filter(student=pk, id=course_pk,
+                                            assignment_course__assignment_student__content__isnull=True)
         if outstanding.exists():
             return Response(outstanding.values("subject", "assignment_course__subject"))
         return Response({"Message": "You have no outstanding assignments for this course"})
@@ -243,9 +245,10 @@ class AdminViewSet(viewsets.ModelViewSet):
         # all the students and their grade point average per course.
         df2 = pd.DataFrame(
             list(StudentProfile.objects.all().values("id", "first_name", "student_assignment__grade",
-                                                     "student_assignment__assignment__course__subject"))).rename(
-            columns={"student_assignment__grade": "grades", "student_assignment__assignment__course__subject": "Course"}).groupby(
-            by=["id", "first_name", "Course"]).agg(list)
+                     "student_assignment__assignment__course__subject"))).rename(
+                     columns={"student_assignment__grade": "grades",
+                     "student_assignment__assignment__course__subject": "Course"}).groupby(
+                     by=["id", "first_name", "Course"]).agg(list)
         df2["average"] = df2["grades"].apply(lambda x: sum(x)/3)
         table = pd.pivot_table(df2, values="average", index="first_name", columns="Course")
 
@@ -263,15 +266,15 @@ class AdminViewSet(viewsets.ModelViewSet):
         buffer = io.BytesIO()
 
         # a student breakdown of the courses
-        df1 = pd.DataFrame(list(StudentAssignment.objects.filter(student=pk).values("assignment__course__subject", "content"))).rename(
-            columns={"assignment__course__subject": "subject", "content": "progress"}).groupby(
+        df1 = pd.DataFrame(list(StudentAssignment.objects.filter(student=pk).values("assignment__course__subject",
+            "content"))).rename(columns={"assignment__course__subject": "subject", "content": "progress"}).groupby(
             "assignment__course__subject")[["content"]].apply(lambda x: x.count()/3)
         # df = pd.Series({"subject": "general progression", "progress": df1["progress"].sum()})
         # pd.concat([df1, df.to_frame().T], ignore_index=True)
 
         # a grade report per student
-        df2 = pd.DataFrame(list(StudentAssignment.objects.filter(student=pk).values("assignment__course__subject", "grade"))).rename(
-            columns={"assignment__course__subject": "subject"}).groupby(
+        df2 = pd.DataFrame(list(StudentAssignment.objects.filter(student=pk).values("assignment__course__subject",
+            "grade"))).rename(columns={"assignment__course__subject": "subject"}).groupby(
             "subject").agg({"grade": lambda x: list(x)})
 
         with pd.ExcelWriter(buffer) as writer:
@@ -307,42 +310,3 @@ class AdminViewSet(viewsets.ModelViewSet):
         response = HttpResponse(content=buffer.getvalue(), content_type="application/ms-excel")
         response['Content-Disposition'] = f'attachment; filename={filename}'
         return response
-
-    # @action(detail=False, methods=["GET"], )
-    # def best_performing_courses(self, request):
-    #     df = pd.DataFrame(list(Course.objects.all().values("id", "subject", "assignment_course__assignment_student__grade"))).groupby(
-    #         by=["id", "subject"]).apply(lambda x: (x.sum() / x.count())).rename(
-    #         columns={"assignment_course__assignment_student__grade": "average"})
-    #     dfg = df.loc[df["average"] > 5]
-    #     dfg.to_excel("best_performing_courses.xlsx", sheet_name="best_performing_courses")
-    #     with open("best_performing_courses.xlsx", "rb") as file:
-    #         response = HttpResponse(file.read(), content_type="application/vnd.ms-excel")
-    #         response['Content-Disposition'] = 'attachment; filename=%s' % smart_str("best_performing_courses.xlsx")
-    #         return response
-
-
-
-"""
-The HTTP Content Disposition is a response-type header field that gives information 
-on how to process the response payload and additional information such as filename 
-when user saves it locally. This response header field holds a number of values and 
-parameters in the larger context of MIME (Multipurpose Internet Mail Extensions). 
-However, it reduces to a fixed set of parameters and values under HTTP forms and 
-POST requests. 
-
-@action is used to make methods in existing ViewSets routable:
-If you have ad-hoc methods that should be routable, you can mark them as such with the @action decorator.
-@api_view "converts" normal function based view functions to DRF views. 
-
-Label vs. Location
-The main distinction between the two methods is:
-loc gets rows (and/or columns) with particular labels.
-iloc gets rows (and/or columns) at integer locations.
-
-
-The Dockerfile is used to build images while the docker-compose.yaml file is used to run images.
-The Dockerfile uses the docker build command, while the docker-compose.yaml file uses the 
-docker-compose up command.
-A docker-compose.yaml file can reference a Dockerfile, but a Dockerfile can’t reference a 
-docker-compose file.
-"""
