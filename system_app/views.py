@@ -29,8 +29,6 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         pk = self.kwargs["pk"]
-        if str(self.request.user.student_profile.id) != pk:
-            raise ValidationError({"error": "You are not allowed for this action!"})
         return StudentProfile.objects.filter(id=pk)
 
     def perform_create(self, serializer):
@@ -40,8 +38,6 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["GET"], serializer_class=CourseAvailableSerializer)
     def course_available(self, request, pk):
-        if str(self.request.user.student_profile.id) != pk:
-            raise ValidationError({"error": "Please correct your correct id student! (URL)"})
         courses = [course.id for course in Course.objects.all() if course.available]
         course = Course.objects.filter(id__in=courses)
         serializer = self.get_serializer(course, many=True)
@@ -49,8 +45,6 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["GET"],)
     def course_participating(self, request, pk):
-        if str(self.request.user.student_profile.id) != pk:
-            raise ValidationError({"error": "You are not allowed for this action!"})
         student = defaultdict(list)
         courses = Course.objects.filter(student=pk).values("subject")
         for course in courses:
@@ -62,8 +56,6 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["GET"])
     def average_progress(self, request, pk, course_pk):
-        if self.request.user.student_profile.id != pk:
-            raise ValidationError({"error": "You are not allowed for this action!"})
         if Course.objects.filter(student=pk, id=course_pk).exists():
             courses = Course.objects.filter(student=pk, id=course_pk)
             if StudentAssignment.objects.filter(student=pk, assignment__course=course_pk).exists():
@@ -79,8 +71,6 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["GET"])
     def outstanding_assignments(self, request, pk, course_pk):
-        if self.request.user.student_profile.id != pk:
-            raise ValidationError({"error": "You are not allowed for this action!"})
         outstanding = Course.objects.filter(student=pk, id=course_pk,
                                             assignment_course__assignment_student__content__isnull=True)
         if outstanding.exists():
@@ -89,8 +79,6 @@ class StudentProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["PUT"], serializer_class=[UpdateCourseSerializer])
     def register_to_course(self, request, pk, course_pk):
-        if self.request.user.student_profile.id != pk:
-            raise ValidationError({"error": "Please enter your correct ID!!"})
         courses = [course.id for course in Course.objects.all() if course.available]
         count = 0
         for i in courses:
@@ -135,8 +123,6 @@ class TeacherProfileViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         pk = self.kwargs["pk"]
-        if str(self.request.user.teacher_profile.id) != pk:
-            raise ValidationError({"error": "You are not allowed for this action!"})
         return TeacherProfile.objects.filter(id=pk)
 
     def perform_create(self, serializer):
@@ -146,17 +132,13 @@ class TeacherProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["GET"], serializer_class=CourseSerializers)
     def course_teaching(self, request, pk):
-        if pk != str(self.request.user.teacher_profile.id):
-            raise ValidationError({"error": "You are not allowed for this action!"})
         courses = Course.objects.filter(teacher_id=pk)
         if courses.exists():
             serializer = self.get_serializer(courses, many=True)
             return Response(serializer.data)
 
-    @action(detail=True, methods=["GET"],) # time = 0.007
+    @action(detail=True, methods=["GET"],)
     def students_signed(self, request, pk, course_pk):
-        if pk != self.request.user.teacher_profile.id:
-            raise ValidationError({"error": "You are not allowed for this action!"})
         courses = Course.objects.filter(teacher_id=pk, id=course_pk).values("student", "student__first_name")
         result = {}
         for student in courses:
