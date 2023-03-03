@@ -13,13 +13,13 @@ class PermissionDenied(APIException):
 class IsAdminOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
         refresh = RefreshToken.for_user(request.user)
-        return bool(request.user.role == "ADMIN" and request.user.is_staff and refresh.blacklist() is False)
+        return bool(request.user.role == "ADMIN" and request.user.is_staff and refresh.blacklist())
 
 
 class IsTeacherOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
         refresh = RefreshToken.for_user(request.user)
-        if request.user.role == "TEACHER" and refresh.blacklist() is False:
+        if request.user.role == "TEACHER" and refresh.blacklist():
             return True
         raise PermissionDenied()
 
@@ -27,6 +27,6 @@ class IsTeacherOrReadOnly(permissions.BasePermission):
 class IsStudentOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
         refresh = RefreshToken.for_user(request.user)
-        if request.user.role == "STUDENT" and refresh.blacklist() is False:
+        if request.user.role == "STUDENT" and refresh.blacklist():
             return True
         raise PermissionDenied()

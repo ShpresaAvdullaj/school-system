@@ -201,21 +201,20 @@ class AdminViewSet(viewsets.ModelViewSet):
     def update(self, request, pk):
         course = Course.objects.get(id=pk)
         serializer = self.get_serializer(course, data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            if course.id in [course.id for course in Course.objects.all() if course.available]:
-                course = Course.objects.get(id=pk)
-                send_mail(
-                    subject='Email for available courses!',
-                    message=f'We would like to inform you that the course {course.subject} is available now!'
-                            f' You can register!',
-                    from_email=settings.EMAIL_HOST_USER,
-                    recipient_list=[StudentProfile.objects.get(id=course.wait_list[0]).email],
-                    # recipient_list=['shpresa.avdullaj@fshnstudent.info'],
-                )
-                course.wait_list.pop(0)
-                course.save()
-                return Response({"message": "Mail sent successfully + Course updated successfully!!!!!"})
+        serializer.is_valid(raise_exception=True)
+        if course.id in [course.id for course in Course.objects.all() if course.available]:
+            course = Course.objects.get(id=pk)
+            send_mail(
+                subject='Email for available courses!',
+                message=f'We would like to inform you that the course {course.subject} is available now!'
+                        f' You can register!',
+                from_email=settings.EMAIL_HOST_USER,
+                recipient_list=[StudentProfile.objects.get(id=course.wait_list[0]).email],
+                # recipient_list=['shpresa.avdullaj@fshnstudent.info'],
+            )
+            course.wait_list.pop(0)
+            course.save()
+            return Response({"message": "Mail sent successfully + Course updated successfully!!!!!"})
         return Response({"message": "Course updated successfully!!!"})
 
     @action(detail=False, methods=["GET"])
